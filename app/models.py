@@ -158,6 +158,15 @@ class Request(Base):
             return next((e.comment for e in reversed(self.events) if e.action == Action.ANNULLED), None)
         return None
 
+    @property
+    def unassigned(self) -> bool:
+        """На текущем этапе не нашлось ответственного — решают администраторы (или пока никто)."""
+        if not self.is_open:
+            return False
+        entered = next((e for e in reversed(self.events)
+                        if e.action == Action.ENTERED and e.stage_index == self.stage_index), None)
+        return bool(entered and entered.comment and entered.comment.startswith("⚠️"))
+
     def current_assignees(self) -> list[User]:
         if not self.is_open:
             return []

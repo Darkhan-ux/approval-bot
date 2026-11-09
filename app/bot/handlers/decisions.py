@@ -22,13 +22,13 @@ class RejectFlow(StatesGroup):
 async def mark_message(bot: Bot, chat_id: int, message_id: int, note: str, original: Message | None = None):
     """Убирает кнопки у карточки заявки и дописывает итог."""
     try:
-        if original is not None and (original.text or original.caption):
-            body = (original.html_text or "") + f"\n\n<b>{note}</b>"
-            if original.text:
-                await original.edit_text(body, reply_markup=None)
-            else:
-                await original.edit_caption(caption=body[:1024], reply_markup=None)
+        body = (original.html_text or "") + f"\n\n<b>{note}</b>" if original is not None else ""
+        if original is not None and original.text:
+            await original.edit_text(body, reply_markup=None)
+        elif original is not None and original.caption and len(body) <= 1024:
+            await original.edit_caption(caption=body, reply_markup=None)
         else:
+            # Подпись к фото не влезает (или карточки нет под рукой) — просто убираем кнопки
             await bot.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
     except TelegramAPIError:
         pass  # сообщение могли удалить — не страшно

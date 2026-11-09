@@ -16,6 +16,12 @@ from app.workflow_config import WorkflowConfig
 
 log = logging.getLogger(__name__)
 
+CAPTION_LIMIT = 1024  # предел подписи к фото/файлу в Telegram
+
+
+def short(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
 
 class Notifier:
     def __init__(self, bot: Bot, wf: WorkflowConfig, tz: ZoneInfo, sync: SheetSync | None, open_access: bool):
@@ -55,11 +61,19 @@ class Notifier:
 
         # Следующим ответственным — карточку с кнопками
         header = ""
-        if outcome.action == Action.RETURNED:
-            reason = escape(last_comment(req, Action.RETURNED))
+        if req.unassigned:
+            stage = escape(self.wf.stage_title(req.stage_code))
+            header = (f"⚠️ <b>Не назначен ответственный за этап «{stage}»</b>\n"
+                      "Заявка передана вам как администратору. Назначьте ответственного в списке сотрудников "
+                      "и верните заявку на этот этап (/r " + str(req.id) + ") — или примите решение сами.\n\n")
+        elif outcome.action == Action.RETURNED:
+            reason = escape(short(last_comment(req, Action.RETURNED), 200))
             header = f"↩️ <b>Заявка возвращена вам на повторное решение</b>\nПричина: <i>{reason}</i>\n\n"
         for user in outcome.new_assignees:
             await self.send_card(user, req, header=header)
+        if req.unassigned and not outcome.new_assignees:
+            log.warning("Заявка №%s ждёт на этапе «%s»: нет ни ответственного, ни администраторов",
+                        req.id, req.stage_code)
 
     async def send_card(self, user: User, req: Request, header: str = "") -> None:
         if not user.tg_id:
@@ -72,10 +86,14 @@ class Notifier:
         text = header + request_card(req, self.wf, self.tz, short_description=bool(req.attachment_file_id))
         kb = decision_kb(req, self.wf)
         try:
-            if req.attachment_kind == "photo":
-                await self.bot.send_photo(user.tg_id, req.attachment_file_id, caption=text, reply_markup=kb)
-            elif req.attachment_kind == "document":
-                await self.bot.send_document(user.tg_id, req.attachment_file_id, caption=text, reply_markup=kb)
+            if req.attachment_kind in ("photo", "document"):
+                send = self.bot.send_photo if req.attachment_kind == "photo" else self.bot.send_document
+                if len(text) <= CAPTION_LIMIT:
+                    await send(user.tg_id, req.attachment_file_id, caption=text, reply_markup=kb)
+                else:
+                    # Подпись к вложению в Telegram — до 1024 символов: вложение отдельно, карточка текстом
+                    await send(user.tg_id, req.attachment_file_id, caption=f"Вложение к заявке №{req.id}")
+                    await self.bot.send_message(user.tg_id, text, reply_markup=kb)
             else:
                 await self.bot.send_message(user.tg_id, text, reply_markup=kb)
         except TelegramAPIError as e:

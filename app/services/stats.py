@@ -150,7 +150,9 @@ async def compute_stats(session: AsyncSession, wf: WorkflowConfig, tz: ZoneInfo,
         s.stuck.append(StuckItem(
             id=r.id, type_title=wf.type_title(r.type_code), amount=r.amount,
             author=r.author.full_name, stage_title=wf.stage_title(r.stage_code),
-            assignees=", ".join(u.full_name for u in assignees), wait_h=wait, overdue=overdue,
+            assignees=(("⚠️ не назначен" + (" → " if assignees else "")) if r.unassigned else "")
+            + ", ".join(u.full_name for u in assignees),
+            wait_h=wait, overdue=overdue,
         ))
     s.stuck.sort(key=lambda x: x.wait_h, reverse=True)
     s.stuck = s.stuck[:10]

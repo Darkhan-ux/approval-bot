@@ -25,6 +25,21 @@ COMMANDS = [
 ]
 
 
+# Профиль бота: «О боте» и текст на экране до нажатия «Запустить»
+SHORT_DESCRIPTION = (
+    "Согласование заявок на закупку и оплату: руководитель → директор → бухгалтер. Журнал в Google Таблице."
+)
+DESCRIPTION = (
+    "Бот для согласования заявок внутри компании.\n\n"
+    "• Подайте заявку: тип, сумма, описание, фото или файл\n"
+    "• Она пройдёт маршрут: руководитель → директор (от 500 000 ₸) → бухгалтер\n"
+    "• Отказ — только с причиной, зависшие заявки — с напоминаниями\n"
+    "• Ошибки исправляет администратор, история не удаляется\n"
+    "• Всё пишется в Google Таблицу, аналитика — на дашборде\n\n"
+    "Нажмите «Запустить» и подайте заявку."
+)
+
+
 def create_bot(token: str) -> Bot:
     return Bot(token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
@@ -46,6 +61,8 @@ def create_dispatcher(
 
     async def on_startup():
         await bot.set_my_commands(COMMANDS)
+        await bot.set_my_short_description(SHORT_DESCRIPTION)
+        await bot.set_my_description(DESCRIPTION)
 
     dp.startup.register(on_startup)
     return dp, notifier

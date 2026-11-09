@@ -14,6 +14,9 @@
     любая заявка ──► АННУЛИРОВАНА (ушла из статистики, но осталась в истории)
     любая заявка ──► ВОЗВРАЩЕНА на выбранный этап (например, если одобрили по ошибке)
 Заявки не удаляются: история согласования — это аудит.
+
+Отказ по умолчанию: этап пропускается ТОЛЬКО по порогу суммы. Если ответственного нет
+(уволился, неактивен), заявка ждёт на этапе, а решение поручается администраторам.
 """
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -28,6 +31,7 @@ from app.workflow_config import APPROVE, Stage, WorkflowConfig
 MAX_AMOUNT = Decimal("10000000000")  # 10 млрд — защита от опечаток
 CURRENCY_MARKS = ("тенге", "тг", "₸", "руб.", "руб", "р.", "₽")
 MIN_REASON_LEN = 3
+UNASSIGNED_NOTE = "⚠️ Не назначен ответственный — заявка передана администраторам"
 
 
 class WorkflowError(Exception):
@@ -225,11 +229,15 @@ class ApprovalService:
         return self.is_admin(user) or (self.open_access and req.author_id == user.id)
 
     def returnable_stages(self, req: Request) -> list[Stage]:
-        """Этапы, на которые можно вернуть заявку: нужные по сумме и не тот, на котором она сейчас."""
+        """Этапы, на которые можно вернуть заявку: нужные по сумме и не тот, на котором она сейчас.
+
+        Исключение — этап без ответственного: после того как ответственного назначили,
+        заявку «возвращают» на тот же этап, и она уходит уже ему.
+        """
         return [
             stage for i, stage in enumerate(self.wf.stages)
             if (stage.min_amount is None or req.amount >= stage.min_amount)
-            and not (req.is_open and req.stage_index == i)
+            and not (req.is_open and req.stage_index == i and not req.unassigned)
         ]
 
     async def _get_for_admin(self, session: AsyncSession, request_id: int, actor: User) -> Request:
@@ -338,20 +346,22 @@ class ApprovalService:
             users = await self._resolve(session, stage.assignee, req)
             if not users and stage.fallback:
                 users = await self._resolve(session, stage.fallback, req)
+            note = None
             if not users:
-                self._log(req, Action.SKIPPED, actor=None, now=now, stage_index=index,
-                          comment="Не найден ответственный")
-                continue
+                # Отказ по умолчанию: без ответственного этап НЕ пропускается.
+                # Заявка ждёт на этапе, а решать её временно поручается администраторам.
+                users = await self._admins(session, exclude=req.author)
+                note = UNASSIGNED_NOTE
 
             req.stage_index = index
             req.stage_code = stage.code
             req.stage_entered_at = now
             req.last_reminded_at = None
-            already = {a.user.id for a in req.assignments if a.stage_index == index}  # при возврате на этап
-            for user in users:
-                if user.id not in already:
-                    req.assignments.append(Assignment(stage_index=index, user=user))
-            self._log(req, Action.ENTERED, actor=None, now=now, stage_index=index)
+            # При повторном входе на этап (возврат) прежний состав ответственных заменяется новым
+            req.assignments = [a for a in req.assignments if a.stage_index != index]
+            for user in {u.id: u for u in users}.values():
+                req.assignments.append(Assignment(stage_index=index, user=user))
+            self._log(req, Action.ENTERED, actor=None, now=now, stage_index=index, comment=note)
             return users
 
         # Все этапы пройдены
@@ -378,6 +388,21 @@ class ApprovalService:
         else:
             return []
         result = await session.execute(query.order_by(User.id))
+        return list(result.scalars())
+
+    async def _admins(self, session: AsyncSession, exclude: User) -> list[User]:
+        """Активные администраторы (по роли или из настроек), кроме указанного человека."""
+        conditions = [User.role == Role.ADMIN]
+        ids = [int(a) for a in self.admins if a.isdigit()]
+        names = [a for a in self.admins if not a.isdigit()]
+        if ids:
+            conditions.append(User.tg_id.in_(ids))
+        if names:
+            conditions.append(User.username.in_(names))
+        result = await session.execute(
+            select(User).where(User.is_active.is_(True), User.id != exclude.id, or_(*conditions))
+            .order_by(User.id)
+        )
         return list(result.scalars())
 
     def _log(

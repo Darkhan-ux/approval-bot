@@ -94,17 +94,21 @@ async def seed(reset: bool, count: int) -> None:
         employees = [u for u in users.values() if u.role == Role.EMPLOYEE]
 
         now = utcnow()
-        created = 0
+        # Время подачи: последние 45 дней, рабочие часы 9:00–18:00 по Алматы (UTC+5).
+        # Сортируем заранее, чтобы номера заявок шли по порядку дат, как в жизни.
+        moments = []
         for _ in range(count):
+            t = now - timedelta(days=random.uniform(0, 45))
+            t = t.replace(hour=random.randint(4, 12), minute=random.randint(0, 59))
+            moments.append(t - timedelta(days=1) if t > now else t)
+        moments.sort()
+
+        created = 0
+        for t in moments:
             author = random.choice(employees)
             type_code = random.choices(["purchase", "payment", "markdown"], weights=[5, 3, 2])[0]
             text, lo, hi = random.choice(DESCRIPTIONS[type_code])
             amount = Decimal(random.randrange(lo, hi, 1000))
-            # Время подачи: последние 45 дней, рабочие часы 9:00–18:00 по Алматы (UTC+5)
-            t = now - timedelta(days=random.uniform(0, 45))
-            t = t.replace(hour=random.randint(4, 12), minute=random.randint(0, 59))
-            if t > now:
-                t -= timedelta(days=1)
 
             outcome = await service.create(session, author, type_code, amount, text, now=t)
             req = outcome.request
