@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+.callout { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.callout .card { border-left: 4px solid var(--warning); }
+.callout .big { font-size: 18px; font-weight: 650; margin: 2px 0; }
+.hbar-row { display: grid; grid-template-columns: 120px 1fr 90px; gap: 10px; align-items: center; padding: 6px 0; }
+.hbar-track { height: 18px; position: relative; }
+.hbar { height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; min-width: 2px; }
+.hbar-row .name { font-size: 14px; }
+.hbar-row .val { font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; }
+.hbar-row .meta { grid-column: 2 / 4; color: var(--muted); font-size: 12px; margin-top: -4px; }
+.cols { display: flex; align-items: flex-end; gap: 2px; height: 170px; border-bottom: 1px solid var(--axis); padding-top: 8px; }
+.col { flex: 1; display: flex; align-items: flex-end; gap: 1px; height: 100%; cursor: default; min-width: 0; }
+.col:hover { background: var(--wash); }
+.col span { flex: 1; border-radius: 3px 3px 0 0; min-height: 0; }
+.col .a { background: var(--series-1); }
+.col .b { background: var(--series-2); }
+.xlabels { display: flex; gap: 2px; color: var(--muted); font-size: 11px; margin-top: 4px; }
+.xlabels span { flex: 1; text-align: center; overflow: visible; white-space: nowrap; min-width: 0; }
+.legend { display: flex; gap: 14px; font-size: 13px; color: var(--text-2); margin: 6px 0 4px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.overdue { color: var(--critical); font-weight: 600; }
+.st-done { background: var(--good); } .st-in_progress { background: var(--series-1); }
+.st-rejected { background: var(--critical); } .st-cancelled, .st-annulled { background: var(--muted); }
+@media (max-width: 520px) { .hbar-row { grid-template-columns: 90px 1fr 70px; } .tile .value { font-size: 24px; } }
+</style>
+
+<header class="top">
+  <div>
+    <h1>Согласование заявок</h1>
+    <div class="sub">Данные на {{ now }} · за последние {{ s.days }} дн.</div>
+  </div>
+  <nav class="seg" aria-label="Период">
+    {% for p in periods %}<a href="?days={{ p }}" class="{{ 'on' if p == s.days else '' }}">{{ p }} дней</a>{% endfor %}
+  </nav>
+</header>
+
+
+<section class="grid tiles">
+  <div class="card tile"><div class="label">Подано заявок</div><div class="value">{{ s.total }}</div>
+    <div class="hint">за {{ s.days }} дн.</div></div>
+  <div class="card tile"><div class="label">Исполнено</div><div class="value">{{ s.by_status['done'] }}</div>
+    <div class="hint">на {{ s.total_amount_done | money }}</div></div>
+  <div class="card tile"><div class="label">Доля одобренных</div><div class="value">{{ s.approval_rate | pct }}</div>
+    <div class="hint">отклонено: {{ s.by_status['rejected'] }}, отозвано: {{ s.by_status['cancelled'] }}</div></div>
+  <div class="card tile"><div class="label">Среднее время согласования</div><div class="value">{{ s.avg_cycle_h | hours }}</div>
+    <div class="hint">медиана {{ s.median_cycle_h | hours }} · от подачи до исполнения</div></div>
+  <div class="card tile"><div class="label">Висят прямо сейчас</div><div class="value">{{ s.open_now }}</div>
+    <div class="hint">{% if s.overdue_now %}<span class="overdue">⚠ {{ s.overdue_now }} дольше {{ reminder_h|int }} ч</span>{% else %}просроченных нет{% endif %}</div></div>
+</section>
+
+<section class="callout">
+  <div class="card">
+    <div class="sub">Узкое место процесса</div>
+    {% if s.bottleneck_stage %}
+      <div class="big">⚠ Этап «{{ s.bottleneck_stage.title }}»</div>
+      <div>в среднем {{ s.bottleneck_stage.avg_h | hours }} на решение{% if s.bottleneck_stage.pending_now %}, сейчас ждут {{ s.bottleneck_stage.pending_now }}{% endif %}</div>
+    {% else %}<div class="big">Пока мало данных</div>{% endif %}
+  </div>
+  <div class="card">
+    <div class="sub">Дольше всех отвечает</div>
+    {% if s.slowest_person %}
+      <div class="big">⚠ {{ s.slowest_person.name }}</div>
+      <div>{{ s.slowest_person.role }}{% if s.slowest_person.department %}, {{ s.slowest_person.department }}{% endif %} — в среднем {{ s.slowest_person.avg_h | hours }}, решений: {{ s.slowest_person.decisions }}</div>
+    {% else %}<div class="big">Пока мало данных</div>{% endif %}
+  </div>
+</section>
+
+<section class="grid two">
+  <div class="card">
+    <h2>Сколько заявка ждёт на каждом этапе</h2>
+    <div class="sub" style="margin-bottom:8px">Среднее время от поступления на этап до решения</div>
+    {% for st in s.stages %}
+      <div class="hbar-row" data-tip="<b>{{ st.title }}</b><br>Среднее: {{ st.avg_h | hours }} · медиана: {{ st.median_h | hours }}<br>Пройдено: {{ st.passed }}, отклонено: {{ st.rejected }}<br>Сейчас ждут: {{ st.pending_now }}">
+        <div class="name">{{ st.title }}</div>
+        <div class="hbar-track"><div class="hbar" style="width: {{ ((st.avg_h or 0) / max_stage * 100) | round(1) }}%"></div></div>
+        <div class="val">{{ st.avg_h | hours }}</div>
+        <div class="meta">решений: {{ st.passed + st.rejected }}{% if st.pending_now %} · ждут сейчас: {{ st.pending_now }} (в среднем {{ st.pending_avg_wait_h | hours }}){% endif %}</div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="card">
+    <h2>Заявки по дням</h2>
+    <div class="legend"><span><i style="background:var(--series-1)"></i>Подано</span><span><i style="background:var(--series-2)"></i>Закрыто</span></div>
+    <div class="cols" role="img" aria-label="Количество поданных и закрытых заявок по дням">
+      {% for d in s.daily %}
+        <div class="col" data-tip="<b>{{ d.day.strftime('%d.%m') }}</b><br>Подано: {{ d.created }}<br>Закрыто: {{ d.closed }}">
+          <span class="a" style="height: {{ (d.created / max_daily * 100) | round(1) }}%"></span>
+          <span class="b" style="height: {{ (d.closed / max_daily * 100) | round(1) }}%"></span>
+        </div>
+      {% endfor %}
+    </div>
+    {% set step = (s.daily|length / 6) | round(0, 'ceil') | int %}
+    <div class="xlabels">
+      {% for d in s.daily %}<span>{% if loop.index0 % step == 0 %}{{ d.day.strftime('%d.%m') }}{% endif %}</span>{% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="card" style="margin-bottom:14px">
+  <h2>Висят дольше всего прямо сейчас</h2>
+  <div class="sub" style="margin-bottom:6px">Напоминание уходит после {{ reminder_h|int }} ч без решения</div>
+  {% if s.stuck %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>№</th><th>Тип</th><th class="num">Сумма</th><th>Автор</th><th>Этап</th><th>Ждёт решения от</th><th class="num">Сколько ждёт</th></tr></thead>
+    <tbody>
+    {% for x in s.stuck %}
+      <tr>
+        <td><a href="/requests/{{ x.id }}">{{ x.id }}</a></td>
+        <td>{{ x.type_title }}</td>
+        <td class="num">{{ x.amount | money }}</td>
+        <td>{{ x.author }}</td>
+        <td>{{ x.stage_title }}</td>
+        <td>{{ x.assignees }}</td>
+        <td class="num {{ 'overdue' if x.overdue }}">{% if x.overdue %}⚠ {% endif %}{{ x.wait_h | hours }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<div class="empty">🎉 Нет заявок, ожидающих решения</div>{% endif %}
+</section>
+
+<section class="grid two">
+  <div class="card">
+    <h2>Кто сколько держит заявки</h2>
+    <div class="sub" style="margin-bottom:6px">Среднее время на решение и сколько ждут сейчас</div>
+    {% if s.people %}
+    <div class="table-scroll"><table>
+      <thead><tr><th>Сотрудник</th><th class="num">Решений</th><th class="num">Среднее</th><th class="num">Ждут сейчас</th></tr></thead>
+      <tbody>
+      {% for p in s.people %}
+        <tr>
+          <td>{{ p.name }}<div class="sub">{{ p.role }}{% if p.department %} · {{ p.department }}{% endif %}</div></td>
+          <td class="num">{{ p.decisions }}</td>
+          <td class="num">{{ p.avg_h | hours }}</td>
+          <td class="num">{{ p.pending_now or '—' }}{% if p.oldest_wait_h %}<div class="sub">старейшая {{ p.oldest_wait_h | hours }}</div>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<div class="empty">Пока нет решений</div>{% endif %}
+  </div>
+
+  <div class="card">
+    <h2>По типам заявок</h2>
+    {% if s.by_type %}
+    <div class="table-scroll"><table>
+      <thead><tr><th>Тип</th><th class="num">Заявок</th><th class="num">Сумма</th></tr></thead>
+      <tbody>{% for title, n, total in s.by_type %}<tr><td>{{ title }}</td><td class="num">{{ n }}</td><td class="num">{{ total | money }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}<div class="empty">Нет заявок за период</div>{% endif %}
+    <div class="sub" style="margin-top:10px">Напоминаний отправлено за период: {{ s.reminders }}</div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Последние заявки</h2>
+  {% if recent %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>№</th><th>Создана</th><th>Автор</th><th>Тип</th><th class="num">Сумма</th><th>Статус</th></tr></thead>
+    <tbody>
+    {% for r in recent %}
+      <tr>
+        <td><a href="/requests/{{ r.id }}">{{ r.id }}</a></td>
+        <td>{{ r.created_at | dt }}</td>
+        <td>{{ r.author.full_name }}</td>
+        <td>{{ wf.type_title(r.type_code) }}</td>
+        <td class="num">{{ r.amount | money }}</td>
+        <td><span class="badge"><span class="dot st-{{ r.status }}"></span>{{ STATUS_TITLES[r.status] }}{% if r.is_open %} · {{ wf.stage_title(r.stage_code) }}{% endif %}</span></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<div class="empty">Заявок пока нет. Подайте первую в боте или запустите <code>python -m scripts.seed</code></div>{% endif %}
+</section>
+{% endblock %}

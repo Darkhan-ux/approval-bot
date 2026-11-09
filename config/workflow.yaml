@@ -1,0 +1,53 @@
+# Настройки процесса согласования.
+# Здесь меняется всё, что отличается от компании к компании, — без правки кода.
+
+# Валюта для отображения сумм
+currency: "₸"
+
+# Типы заявок, которые сотрудник выбирает в боте
+request_types:
+  - code: purchase
+    title: Закупка
+  - code: payment
+    title: Оплата счёта
+  - code: markdown
+    title: Уценка товара
+
+# Маршрут: этапы проходятся сверху вниз.
+#
+#   kind: approve  — кнопки «Одобрить» / «Отклонить»
+#   kind: execute  — кнопки «Исполнено» / «Отклонить» (финальный исполнитель)
+#
+#   assignee — кто отвечает за этап:
+#     department_manager — руководитель отдела автора заявки
+#     role:<роль>        — все сотрудники с этой ролью (manager, accountant, director)
+#     user:<username>    — конкретный человек по Telegram-нику
+#
+#   fallback   — кому передать, если ответственного нет
+#                (например, заявку подал сам руководитель — себе он не одобряет)
+#   min_amount — этап нужен только для заявок от этой суммы
+stages:
+  - code: manager
+    title: Руководитель
+    kind: approve
+    assignee: department_manager
+    fallback: role:director
+
+  - code: director
+    title: Директор
+    kind: approve
+    assignee: role:director
+    min_amount: 500000
+
+  - code: accountant
+    title: Бухгалтер
+    kind: execute
+    assignee: role:accountant
+    done_label: "💸 Оплачено / исполнено"
+
+# Через сколько часов без решения напомнить ответственному
+reminder_after_hours: 24
+# Как часто проверять зависшие заявки (минуты)
+reminder_check_minutes: 15
+# Как часто перечитывать список сотрудников (минуты)
+staff_sync_minutes: 10

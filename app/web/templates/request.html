@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Заявка №{{ r.id }}{% endblock %}
+{% block content %}
+<style>
+.kv { display: grid; grid-template-columns: 160px 1fr; gap: 6px 14px; font-size: 14px; }
+.kv div:nth-child(odd) { color: var(--text-2); }
+.tl { list-style: none; padding: 0; margin: 0; border-left: 2px solid var(--grid); }
+.tl li { position: relative; padding: 0 0 14px 18px; }
+.tl li::before { content: ""; position: absolute; left: -6px; top: 5px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--surface); border: 2px solid var(--series-1); }
+.tl .when { color: var(--muted); font-size: 12px; }
+@media (max-width: 520px) { .kv { grid-template-columns: 1fr; } }
+</style>
+<p><a href="/">← К дашборду</a></p>
+<header class="top"><h1>Заявка №{{ r.id }} · {{ wf.type_title(r.type_code) }}</h1>
+  <span class="badge">{{ STATUS_TITLES[r.status] }}{% if r.is_open %} · {{ wf.stage_title(r.stage_code) }}{% endif %}</span></header>
+<section class="grid two">
+  <div class="card">
+    <div class="kv">
+      <div>Сумма</div><div><b>{{ r.amount | money }}</b></div>
+      <div>Автор</div><div>{{ r.author.display }}</div>
+      <div>Описание</div><div>{{ r.description }}</div>
+      <div>Вложение</div><div>{{ {'photo': 'фото', 'document': 'файл'}.get(r.attachment_kind, 'нет') }}</div>
+      <div>Создана</div><div>{{ r.created_at | dt }}</div>
+      {% if r.closed_at %}<div>Закрыта</div><div>{{ r.closed_at | dt }}</div>{% endif %}
+      {% if r.close_reason %}<div>{{ 'Причина аннулирования' if r.status == 'annulled' else 'Причина отказа' }}</div><div>{{ r.close_reason }}</div>{% endif %}
+      {% if r.is_open %}<div>Ждёт решения от</div><div>{{ r.current_assignees() | map(attribute='full_name') | join(', ') }}</div>{% endif %}
+    </div>
+  </div>
+  <div class="card">
+    <h2 style="margin-bottom:12px">Маршрут заявки</h2>
+    <ul class="tl">
+      {% for ev in r.events %}
+        <li><div class="when">{{ ev.created_at | dt }}</div>
+          <div><b>{{ ACTION_TITLES[ev.action] }}</b>{% if ev.stage_code %} · {{ wf.stage_title(ev.stage_code) }}{% endif %}{% if ev.actor %} — {{ ev.actor.full_name }}{% endif %}</div>
+          {% if ev.comment %}<div class="sub">{{ ev.comment }}</div>{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+{% endblock %}
