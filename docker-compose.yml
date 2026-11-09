@@ -1,0 +1,59 @@
+# Запуск на сервере:  docker compose up -d --build
+#
+# app     — бот, дашборд, напоминания и синхронизация с Google Таблицей
+# caddy   — открывает дашборд по домену через HTTPS (сертификат получает сам)
+# duckdns — раз в 5 минут сообщает DuckDNS адрес сервера
+#
+# Домен и токен DuckDNS задаются в .env: DOMAIN, DUCKDNS_TOKEN.
+services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      WEB_HOST: 0.0.0.0
+      WEB_PORT: 8000
+    volumes:
+      - ./data:/app/data
+      - ./credentials:/app/credentials:ro
+      - ./config:/app/config:ro
+    restart: unless-stopped
+    logging: &logging
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  caddy:
+    image: caddy:2.8-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Укажите DOMAIN в .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [app]
+    restart: unless-stopped
+    logging: *logging
+
+  duckdns:
+    image: alpine:3.20
+    environment:
+      DOMAIN: ${DOMAIN}
+      DUCKDNS_TOKEN: ${DUCKDNS_TOKEN:-}
+    command:
+      - sh
+      - -c
+      - |
+        [ -z "$$DUCKDNS_TOKEN" ] && echo "DUCKDNS_TOKEN не задан — обновление адреса отключено" && sleep infinity
+        SUB=$${DOMAIN%%.duckdns.org}
+        while true; do
+          echo "$$(date) DuckDNS: $$(wget -qO- "https://www.duckdns.org/update?domains=$$SUB&token=$$DUCKDNS_TOKEN&ip=")"
+          sleep 300
+        done
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  caddy_data:
+  caddy_config:
